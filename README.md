@@ -25,7 +25,10 @@ customer-churn-prediction-dashboard/
 │   ├── app.py
 │   └── churn_model.pkl
 │
+│── LICENSE
+│
 ├── requirements.txt
+│
 └── README.md
 ```
 ## 🚀 How to Run the Project
