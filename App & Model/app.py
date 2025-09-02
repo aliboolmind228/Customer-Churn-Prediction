@@ -9,6 +9,10 @@ import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
 
+# Import configuration and recommendation engine
+from config import *
+from recommendation_engine import SimpleRecommendationEngine, load_combined_datasets, encode_categorical_variables
+
 # ---------------------------
 # Page config & theme defaults
 # ---------------------------
@@ -20,19 +24,19 @@ div[data-testid="stMetricValue"] {font-size: 1.75rem;}
 </style>
 """, unsafe_allow_html=True)
 
-# Plotly global style (palette + template)
-px.defaults.template = "plotly_white"  # try: plotly_dark / seaborn / ggplot2
-px.defaults.color_discrete_sequence = px.colors.qualitative.Set3
+# Plotly global style (palette + template) - from config
+px.defaults.template = PLOTLY_TEMPLATE
+px.defaults.color_discrete_sequence = getattr(px.colors.qualitative, PLOTLY_COLOR_SEQUENCE.split('.')[-1])
 
-# Consistent colors for Yes/No churn & heatmaps
-CHURN_COLOR_MAP = {"Yes": "#4E9F3D", "No": "#FF0000"}   
-HEATMAP_SCALE = "Turbo"  # or "Viridis", "Blues", "Cividis", "Plasma"
+# Consistent colors for Yes/No churn & heatmaps (from config)
+CHURN_COLOR_MAP = CHURN_COLOR_MAP
+HEATMAP_SCALE = HEATMAP_SCALE
 
 # ---------------------------
-# Paths (change if needed)
+# Paths (from config)
 # ---------------------------
-DATA_PATH = "D:\Projects - Data Science\Projects - Machine Learning\Customer Churn Prediction\WA_Fn-UseC_-Telco-Customer-Churn.csv"
-MODEL_PATH = "D:\Projects - Data Science\Projects - Machine Learning\Customer Churn Prediction\churn_model.pkl"
+DATA_PATH = IBM_DATA_PATH
+MODEL_PATH = MODEL_PATH
 
 # ---------------------------
 # Data / model loaders
@@ -55,6 +59,30 @@ def preprocess(df_raw: pd.DataFrame):
 def load_model(path):
     return joblib.load(path)
 
+@st.cache_resource(show_spinner=False)
+def initialize_recommendation_engine(ibm_path, orange_paths=None, enable_orange=False):
+    """Initialize and train recommendation engine with caching"""
+    try:
+        # Load combined datasets for training
+        if enable_orange and orange_paths:
+            combined_data = load_combined_datasets(ibm_path, orange_paths)
+        else:
+            combined_data = load_combined_datasets(ibm_path)
+        
+        if combined_data is not None:
+            # Encode categorical variables
+            combined_data_encoded = encode_categorical_variables(combined_data)
+            
+            # Initialize and train recommendation engine
+            engine = SimpleRecommendationEngine()
+            X_test, y_test = engine.train_model(combined_data_encoded)
+            return engine
+        else:
+            return None
+    except Exception as e:
+        print(f"Error initializing recommendation engine: {e}")
+        return None
+
 # ---------------------------
 # Safe load
 # ---------------------------
@@ -62,6 +90,26 @@ try:
     df_raw = load_data(DATA_PATH)
     df, df_encoded = preprocess(df_raw)
     model = load_model(MODEL_PATH)
+    
+    # Initialize recommendation engine if enabled
+    recommendation_engine = None
+    if ENABLE_RECOMMENDATIONS:
+        try:
+            # Use cached initialization
+            recommendation_engine = initialize_recommendation_engine(
+                DATA_PATH, 
+                ORANGE_DATA_PATHS if ENABLE_ORANGE_DATASET else None,
+                ENABLE_ORANGE_DATASET
+            )
+            
+            if recommendation_engine is not None:
+                st.sidebar.success("✅ Recommendation engine loaded successfully!")
+            else:
+                st.sidebar.warning("⚠️ Could not load datasets for recommendation engine")
+        except Exception as e:
+            st.sidebar.warning(f"⚠️ Recommendation engine failed to load: {str(e)[:50]}...")
+            recommendation_engine = None
+            
 except Exception as e:
     st.error(f"Couldn't load data or model. Check file paths.\n\n{e}")
     st.stop()
@@ -118,7 +166,10 @@ st.markdown('<div class="small-note">Use the sidebar filters to explore segments
 # ---------------------------
 # Tabs
 # ---------------------------
-tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Explore", "Predict", "Model Performance"])
+if ENABLE_RECOMMENDATIONS and recommendation_engine:
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Overview", "Explore", "Predict", "Model Performance", "Recommendations"])
+else:
+    tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Explore", "Predict", "Model Performance"])
 
 # === Overview tab ===
 with tab1:
@@ -309,3 +360,124 @@ with tab4:
         st.plotly_chart(fig_imp, use_container_width=True)
     else:
         st.info("Feature importances not available for this model.")
+
+# === Recommendations tab ===
+if ENABLE_RECOMMENDATIONS and recommendation_engine:
+    with tab5:
+        st.subheader("🎯 Customer Retention Recommendations")
+        
+        # Sample size selector
+        col1, col2, col3 = st.columns([1, 1, 2])
+        with col1:
+            sample_size = st.number_input("Sample Size", min_value=1, max_value=50, value=10, help="Number of customers to analyze")
+        with col2:
+            top_k = st.number_input("Top Features", min_value=3, max_value=10, value=5, help="Number of top features to show")
+        
+        # Generate recommendations button
+        if st.button("🚀 Generate Recommendations", type="primary"):
+            with st.spinner("Generating personalized recommendations..."):
+                try:
+                    # Get sample customers from filtered data
+                    sample_customers = df_filt.head(sample_size)
+                    
+                    # Encode categorical variables to match the training data format
+                    sample_encoded = encode_categorical_variables(sample_customers)
+                    
+                    # Verify data types are correct for the recommendation engine
+                    st.info(f"📊 Data prepared: {sample_encoded.shape[0]} customers, {sample_encoded.shape[1]} features")
+                    
+                    # Validate data types before sending to recommendation engine
+                    object_columns = sample_encoded.select_dtypes(include=['object']).columns.tolist()
+                    if object_columns:
+                        st.warning(f"⚠️ Warning: Found object columns: {object_columns[:3]}...")
+                        st.info("💡 Converting object columns to numeric...")
+                        for col in object_columns:
+                            try:
+                                sample_encoded[col] = pd.to_numeric(sample_encoded[col], errors='coerce')
+                                sample_encoded[col] = sample_encoded[col].fillna(0)
+                            except:
+                                sample_encoded[col] = 0
+                    
+                    # The recommendation engine will handle data preparation internally
+                    # to ensure feature compatibility with the trained model
+                    recommendations = recommendation_engine.get_recommendations(sample_encoded, top_k=top_k)
+                    
+                    # Display results
+                    st.success(f"✅ Generated recommendations for {len(recommendations)} customers!")
+                    
+                    # Summary metrics
+                    high_risk_count = (recommendations['prediction'] == 'Yes').sum()
+                    avg_risk = recommendations['prediction_proba'].mean()
+                    
+                    metric_col1, metric_col2, metric_col3 = st.columns(3)
+                    with metric_col1:
+                        st.metric("High-Risk Customers", high_risk_count)
+                    with metric_col2:
+                        st.metric("Average Risk Score", f"{avg_risk:.1%}")
+                    with metric_col3:
+                        st.metric("Total Analyzed", len(recommendations))
+                    
+                    # Display detailed recommendations
+                    st.markdown("---")
+                    st.subheader("📊 Detailed Customer Recommendations")
+                    
+                    for idx, row in recommendations.iterrows():
+                        with st.expander(f"Customer {idx+1} - Risk: {row['prediction_proba']:.1%} ({row['prediction']})"):
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.markdown("**🔍 Analysis**")
+                                st.write(f"**Top Features:** {', '.join(row['top_features'][:3])}")
+                                st.write(f"**Risk Factors:** {', '.join(row['reasons'])}")
+                            
+                            with col2:
+                                st.markdown("**💡 Retention Offers**")
+                                for offer in row['retention_offers']:
+                                    st.write(f"• {offer}")
+                            
+                            # Risk level indicator
+                            risk_color = "#FF6B6B" if row['prediction'] == 'Yes' else "#4ECDC4"
+                            st.markdown(f"""
+                            <div style="background-color: {risk_color}; padding: 10px; border-radius: 5px; color: white; text-align: center;">
+                                <strong>Risk Level: {'High' if row['prediction'] == 'Yes' else 'Low'}</strong>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    
+                    # Download recommendations
+                    st.markdown("---")
+                    st.download_button(
+                        label="⬇️ Download Recommendations (CSV)",
+                        data=recommendations.to_csv(index=False).encode('utf-8'),
+                        file_name="customer_recommendations.csv",
+                        mime="text/csv"
+                    )
+                    
+                except Exception as e:
+                    st.error(f"❌ Error generating recommendations: {str(e)}")
+                    st.info("💡 Make sure the recommendation engine is properly loaded and the data format is compatible.")
+        
+        # Show info if no recommendations generated yet
+        else:
+            st.info("👆 Click the button above to generate personalized customer retention recommendations.")
+            st.markdown("""
+            **What you'll get:**
+            - 🎯 **Personalized risk assessment** for each customer
+            - 🔍 **Top contributing factors** to churn risk
+            - 💡 **Actionable retention offers** based on customer profile
+            - 📊 **Risk level classification** (High/Low)
+            - 📥 **Exportable results** for further analysis
+            """)
+            
+            # Debug information
+            with st.expander("🔧 Debug Information"):
+                st.write("**Recommendation Engine Status:**", "✅ Loaded" if recommendation_engine else "❌ Not Loaded")
+                if recommendation_engine:
+                    st.write("**Training Features:**", len(recommendation_engine.feature_names))
+                    st.write("**Sample Features:**", list(df_filt.columns))
+                    st.write("**Feature Mismatch:**", 
+                            "⚠️ Yes" if len(recommendation_engine.feature_names) != len(df_filt.columns) else "✅ No")
+                    
+                    # Additional debugging info
+                    if recommendation_engine.feature_names:
+                        st.write("**Training Feature Names:**", recommendation_engine.feature_names[:5], "...")
+                    st.write("**Data Types in Filtered Data:**", df_filt.dtypes.value_counts().to_dict())
