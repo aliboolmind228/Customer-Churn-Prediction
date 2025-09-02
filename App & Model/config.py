@@ -14,18 +14,18 @@ ENABLE_ORANGE_DATASET = False  # Set to True to enable Orange dataset integratio
 # DATASET PATHS
 # ===============================
 # IBM Telco Customer Churn Dataset
-IBM_DATA_PATH = r"C:\Users\Mazhar Iqbal\Churn_Projects_Sample\Customer-Churn-Prediction-Dashboard\Dataset\WA_Fn-UseC_-Telco-Customer-Churn.csv"
+IBM_DATA_PATH = "Dataset/WA_Fn-UseC_-Telco-Customer-Churn.csv"
 
 # Orange Dataset Paths (optional - for enhanced training)
 ORANGE_DATA_PATHS = [
     # Uncomment and modify these paths if you have Orange datasets
-    # r"C:\Users\Mazhar Iqbal\Churn_Projects_Sample\Customer-Churn-Prediction-Dashboard\Dataset\churn-bigml-20.csv",
-    # r"C:\Users\Mazhar Iqbal\Churn_Projects_Sample\Customer-Churn-Prediction-Dashboard\Dataset\churn-bigml-80.csv"
+    # "Dataset/churn-bigml-20.csv",
+    # "Dataset/churn-bigml-80.csv"
 ]
 
 # Model Paths
-MODEL_PATH = r"C:\Users\Mazhar Iqbal\Churn_Projects_Sample\Customer-Churn-Prediction-Dashboard\App & Model\churn_model.pkl"
-RECOMMENDATION_MODEL_PATH = r"C:\Users\Mazhar Iqbal\Churn_Projects_Sample\Customer-Churn-Prediction-Dashboard\App & Model\recommendation_model.pkl"
+MODEL_PATH = "App & Model/churn_model.pkl"
+RECOMMENDATION_MODEL_PATH = "App & Model/recommendation_model.pkl"
 
 # ===============================
 # RECOMMENDATION ENGINE SETTINGS
